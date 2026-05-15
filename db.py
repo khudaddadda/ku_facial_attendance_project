@@ -65,27 +65,119 @@ class Database:
                 username VARCHAR(100) UNIQUE NOT NULL,
                 password VARCHAR(255) NOT NULL,
                 name VARCHAR(255) NOT NULL,
-                face_embedding TEXT,
+                role ENUM('super_admin', 'admin') NOT NULL DEFAULT 'admin',
+                face_embedding LONGTEXT,
+                palm_embedding LONGTEXT,
+                iris_embedding LONGTEXT,
+                fingerprint_id INT UNIQUE DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        """
+        
+        last code
+        try:
+            cursor.execute(f"SHOW COLUMNS FROM {TABLE_USERS} LIKE 'role'")
+            role_column = cursor.fetchone()
+            if not role_column:
+                cursor.execute(
+                    f"ALTER TABLE {TABLE_USERS} "
+                    "ADD COLUMN role ENUM('super_admin', 'admin') NOT NULL DEFAULT 'admin' AFTER name"
+                )
+                print(" Added 'role' column to users table")
+        except Exception as e:
+            print(f" Role migration warning: {e}")
+            
+            """
+            #add migration logic
+        try:
+            cursor.execute(f"SHOW COLUMNS FROM {TABLE_USERS} LIKE 'role'")
+            if not cursor.fetchone():
+                cursor.execute(
+                    f"ALTER TABLE {TABLE_USERS} "
+                    "ADD COLUMN role ENUM('super_admin', 'admin') NOT NULL DEFAULT 'admin' AFTER name"
+                )
+                print("Added 'role' column to users table")
+
+            cursor.execute(f"SHOW COLUMNS FROM {TABLE_USERS} LIKE 'palm_embedding'")
+            if not cursor.fetchone():
+                cursor.execute(
+                    f"ALTER TABLE {TABLE_USERS} "
+                    "ADD COLUMN palm_embedding LONGTEXT NULL AFTER face_embedding"
+                )
+                print("Added 'palm_embedding' column to users table")
+
+            cursor.execute(f"SHOW COLUMNS FROM {TABLE_USERS} LIKE 'iris_embedding'")
+            if not cursor.fetchone():
+                cursor.execute(
+                    f"ALTER TABLE {TABLE_USERS} "
+                    "ADD COLUMN iris_embedding LONGTEXT NULL AFTER palm_embedding"
+                )
+                print("Added 'iris_embedding' column to users table")
+
+            cursor.execute(f"SHOW COLUMNS FROM {TABLE_USERS} LIKE 'fingerprint_id'")
+            if not cursor.fetchone():
+                cursor.execute(
+                    f"ALTER TABLE {TABLE_USERS} "
+                    "ADD COLUMN fingerprint_id INT NULL AFTER iris_embedding"
+                )
+                print("Added 'fingerprint_id' column to users table")
+
+        except Exception as e:
+            print(f"Users table migration warning: {e}")
+            
+            
+        # --- Safe migration for students table ---
+        try:
+            cursor.execute(f"SHOW COLUMNS FROM {TABLE_STUDENTS} LIKE 'palm_embedding'")
+            if not cursor.fetchone():
+                cursor.execute(
+                    f"ALTER TABLE {TABLE_STUDENTS} "
+                    "ADD COLUMN palm_embedding LONGTEXT NULL AFTER face_embedding"
+                )
+                print("Added 'palm_embedding' column to students table")
+
+            cursor.execute(f"SHOW COLUMNS FROM {TABLE_STUDENTS} LIKE 'iris_embedding'")
+            if not cursor.fetchone():
+                cursor.execute(
+                    f"ALTER TABLE {TABLE_STUDENTS} "
+                    "ADD COLUMN iris_embedding LONGTEXT NULL AFTER palm_embedding"
+                )
+                print("Added 'iris_embedding' column to students table")
+
+            cursor.execute(f"SHOW COLUMNS FROM {TABLE_STUDENTS} LIKE 'fingerprint_id'")
+            if not cursor.fetchone():
+                cursor.execute(
+                    f"ALTER TABLE {TABLE_STUDENTS} "
+                    "ADD COLUMN fingerprint_id INT NULL AFTER iris_embedding"
+                )
+                print("Added 'fingerprint_id' column to students table")
+
+        except Exception as e:
+            print(f"Students table migration warning: {e}")
+            
+            
 
         # Students table
-        cursor.execute(f"""
-            CREATE TABLE IF NOT EXISTS {TABLE_STUDENTS} (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                student_id VARCHAR(50) UNIQUE NOT NULL,
-                name VARCHAR(255) NOT NULL,
-                roll_no VARCHAR(50) UNIQUE NOT NULL,
-                department VARCHAR(100) NOT NULL,
-                year VARCHAR(20) NOT NULL,
-                email VARCHAR(255),
-                phone VARCHAR(20),
-                photo_path TEXT,
-                face_embedding TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+            # Students table
+            cursor.execute(f"""
+                CREATE TABLE IF NOT EXISTS {TABLE_STUDENTS} (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    student_id VARCHAR(50) UNIQUE NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    roll_no VARCHAR(50) UNIQUE NOT NULL,
+                    department VARCHAR(100) NOT NULL,
+                    year VARCHAR(20) NOT NULL,
+                    email VARCHAR(255),
+                    phone VARCHAR(20),
+                    photo_path TEXT,
+                    face_embedding LONGTEXT,
+                    palm_embedding LONGTEXT,
+                    iris_embedding LONGTEXT,
+                    fingerprint_id INT UNIQUE DEFAULT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
         # Attendance table
         cursor.execute(f"""
@@ -149,19 +241,47 @@ class Database:
 
     # ========== User Management ==========
     
-    def check_user_exists(self):
-        """Check if any user exists in the system"""
+    def check_user_exists(self, username):
+        """Check if a username already exists"""
+        query = f"SELECT id FROM {TABLE_USERS} WHERE username = %s"
+        result = self.execute_query(query, (username,))
+        return len(result) > 0 if result else False
+    def get_user_count(self):
+        """Return total number of users"""
         query = f"SELECT COUNT(*) as count FROM {TABLE_USERS}"
         result = self.execute_query(query)
-        return result[0]['count'] > 0 if result else False
+        return result[0]['count'] if result else 0
 
-    def register_user(self, username, password, name, face_embedding):
-        """Register a new user"""
+    def register_user(
+        self,
+        username,
+        password,
+        name,
+        role,
+        face_embedding=None,
+        palm_embedding=None,
+        iris_embedding=None,
+        fingerprint_id=None
+    ):
+        """Register a new user with optional biometric data"""
         query = f"""
-            INSERT INTO {TABLE_USERS} (username, password, name, face_embedding)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO {TABLE_USERS}
+            (username, password, name, role, face_embedding, palm_embedding, iris_embedding, fingerprint_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """
-        return self.execute_update(query, (username, password, name, json.dumps(face_embedding)))
+        return self.execute_update(
+            query,
+            (
+                username,
+                password,
+                name,
+                role,
+                json.dumps(face_embedding) if face_embedding is not None else None,
+                json.dumps(palm_embedding) if palm_embedding is not None else None,
+                json.dumps(iris_embedding) if iris_embedding is not None else None,
+                fingerprint_id
+            )
+        )
 
     def verify_user(self, username, password):
         """Verify user credentials"""
@@ -170,8 +290,12 @@ class Database:
         return result[0] if result else None
 
     def get_all_users(self):
-        """Get all users with face embeddings"""
-        query = f"SELECT id, username, name, face_embedding FROM {TABLE_USERS}"
+        """Get all users with biometric data"""
+        query = f"""
+            SELECT id, username, name, role,
+                face_embedding, palm_embedding, iris_embedding, fingerprint_id
+            FROM {TABLE_USERS}
+        """
         return self.execute_query(query)
 
     # ========== Face Duplicate Checking ==========
@@ -222,16 +346,109 @@ class Database:
                         'distance': distance
                     }
         return None
+     # ========== palm Duplicate Checking ==========
+    
+    def check_duplicate_palm_student(self, palm_embedding):
+        """Check if palm embedding already exists for any student"""
+        from palm_recognition_module import palm_recognizer
+        import json
+
+        query = f"SELECT id, student_id, name, roll_no, palm_embedding FROM {TABLE_STUDENTS}"
+        all_students = self.execute_query(query)
+
+        if not all_students:
+            return None
+
+        for student in all_students:
+            if student['palm_embedding']:
+                try:
+                    stored_embedding = json.loads(student['palm_embedding'])
+                    is_match, distance = palm_recognizer.compare_palm_embeddings(
+                        palm_embedding,
+                        stored_embedding
+                    )
+                    if is_match:
+                        return {
+                            'id': student['id'],
+                            'student_id': student['student_id'],
+                            'name': student['name'],
+                            'roll_no': student['roll_no'],
+                            'distance': distance
+                        }
+                except Exception as e:
+                    print(f"Palm duplicate check error for student {student.get('name', 'Unknown')}: {e}")
+
+        return None
+    
+    #==========fingerprint addang==========
+    def get_next_fingerprint_id(self):
+        """Get next available fingerprint ID from both users and students"""
+
+        query = f"""
+            SELECT MAX(max_id) AS max_id
+            FROM (
+                SELECT MAX(fingerprint_id) AS max_id FROM {TABLE_USERS}
+                UNION ALL
+                SELECT MAX(fingerprint_id) AS max_id FROM {TABLE_STUDENTS}
+            ) AS combined
+        """
+
+        result = self.execute_query(query)
+
+        max_id = result[0]["max_id"] if result and result[0]["max_id"] is not None else 0
+
+        return max_id + 1
 
     # ========== Student Management ==========
     
-    def add_student(self, student_id, name, roll_no, department, year, email, phone, photo_path, face_embedding):
+    def add_student(
+        self,
+        student_id,
+        name,
+        roll_no,
+        department,
+        year,
+        email,
+        phone,
+        photo_path,
+        face_embedding=None,
+        palm_embedding=None,
+        iris_embedding=None,
+        fingerprint_id=None
+    ):
+        # Safety conversion in case numpy arrays are passed directly
+        if face_embedding is not None and hasattr(face_embedding, "tolist"):
+            face_embedding = face_embedding.tolist()
+
+        if palm_embedding is not None and hasattr(palm_embedding, "tolist"):
+            palm_embedding = palm_embedding.tolist()
+
+        if iris_embedding is not None and hasattr(iris_embedding, "tolist"):
+            iris_embedding = iris_embedding.tolist()
         """Add a new student"""
         query = f"""
-            INSERT INTO {TABLE_STUDENTS} (student_id, name, roll_no, department, year, email, phone, photo_path, face_embedding)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO {TABLE_STUDENTS}
+            (student_id, name, roll_no, department, year, email, phone, photo_path,
+            face_embedding, palm_embedding, iris_embedding, fingerprint_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
-        return self.execute_update(query, (student_id, name, roll_no, department, year, email, phone, photo_path, json.dumps(face_embedding)))
+        return self.execute_update(
+            query,
+            (
+                student_id,
+                name,
+                roll_no,
+                department,
+                year,
+                email,
+                phone,
+                photo_path,
+                json.dumps(face_embedding) if face_embedding is not None else None,
+                json.dumps(palm_embedding) if palm_embedding is not None else None,
+                json.dumps(iris_embedding) if iris_embedding is not None else None,
+                fingerprint_id
+            )
+        )
 
     def update_student(self, id, name, roll_no, department, year, email, phone):
         """Update student information"""
@@ -416,6 +633,27 @@ class Database:
         """Clear all attendance records"""
         query = f"TRUNCATE TABLE {TABLE_ATTENDANCE}"
         return self.execute_update(query)
+    # curd admin
+    
+    def get_admin_users(self):
+        """Get all admin and super admin users"""
+        query = f"""
+            SELECT id, username, name, role, created_at
+            FROM {TABLE_USERS}
+            WHERE role IN ('super_admin', 'admin')
+            ORDER BY
+                CASE WHEN role = 'super_admin' THEN 0 ELSE 1 END,
+                created_at ASC
+        """
+        return self.execute_query(query)
+    def delete_user_by_id(self, user_id):
+        """Delete a user by id"""
+        query = f"DELETE FROM {TABLE_USERS} WHERE id = %s"
+        return self.execute_update(query, (user_id,))
+    
+    
+    
+    #cued admin end
 
     def close(self):
         """Close database connection"""

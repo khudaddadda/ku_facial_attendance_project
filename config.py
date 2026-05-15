@@ -2,8 +2,8 @@
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
-    'password': '@Khudadad034',  # Change this to your MySQL password
-    'database': 'kuzk_face',
+    'password': 'zakria.123',  # Change this to your MySQL password
+    'database': 'kuzk_face_palm',
     'port': 3306
 }
 

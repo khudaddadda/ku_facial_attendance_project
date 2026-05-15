@@ -6,6 +6,7 @@ from config import COLORS, APP_TITLE
 from utils import show_toast, center_window
 from face_recognition_module import face_recognizer
 from db import db
+from fingerprint_module import fingerprint_module
 
 
 class LoginPage(ctk.CTkFrame):
@@ -36,7 +37,8 @@ class LoginPage(ctk.CTkFrame):
         # Subtitle
         subtitle_label = ctk.CTkLabel(
             main_container,
-            text="Face Recognition-Based Student Attendance",
+            #text="Face Recognition-Based Student Attendance",
+            text="facial recognition attandance system",
             font=("Roboto", 14),
             text_color="gray"
         )
@@ -138,6 +140,18 @@ class LoginPage(ctk.CTkFrame):
             command=self.face_login_thread
         )
         self.face_login_btn.pack()
+        self.fingerprint_login_btn = ctk.CTkButton(
+            form_inner,
+            text="Login with Fingerprint",
+            width=350,
+            height=45,
+            font=("Roboto", 15, "bold"),
+            fg_color="#7c3aed",
+            hover_color="#6d28d9",
+            corner_radius=8,
+            command=self.fingerprint_login_thread
+        )
+        self.fingerprint_login_btn.pack(pady=(15, 0))
 
         # Register link
         register_frame = ctk.CTkFrame(main_container, fg_color="transparent")
@@ -264,6 +278,90 @@ class LoginPage(ctk.CTkFrame):
         """Update face login status"""
         self.face_login_btn.configure(state="normal", text="Login with Face")
         self.login_btn.configure(state="normal")
+
+        if success and user:
+            show_toast(self, message, "success")
+            self.after(1500, lambda: self.on_success(user))
+        else:
+            show_toast(self, message, "error")
+            
+    # login with fingerprint
+    def fingerprint_login_thread(self):
+        self.fingerprint_login_btn.configure(
+            state="disabled",
+            text="Waiting for finger..."
+        )
+        self.login_btn.configure(state="disabled")
+        self.face_login_btn.configure(state="disabled")
+
+        threading.Thread(
+            target=self.fingerprint_login,
+            daemon=True
+        ).start()
+
+
+    def fingerprint_login(self):
+        try:
+            self.after(
+                0,
+                lambda: show_toast(
+                    self,
+                    "Place finger on sensor",
+                    "info"
+                )
+            )
+
+            fingerprint_id = fingerprint_module.read_fingerprint_id()
+
+            if fingerprint_id is None:
+                self.after(
+                    0,
+                    lambda: self.update_fingerprint_login_status(
+                        False,
+                        "Fingerprint not detected"
+                    )
+                )
+                return
+
+            users = db.get_all_users()
+
+            for user in users:
+                if user.get("fingerprint_id") == fingerprint_id:
+                    self.after(
+                        0,
+                        lambda u=user: self.update_fingerprint_login_status(
+                            True,
+                            f"Welcome, {u['name']}!",
+                            u
+                        )
+                    )
+                    return
+
+            self.after(
+                0,
+                lambda: self.update_fingerprint_login_status(
+                    False,
+                    "Fingerprint not linked to any admin"
+                )
+            )
+
+        except Exception as e:
+            self.after(
+                0,
+                lambda err=str(e): self.update_fingerprint_login_status(
+                    False,
+                    f"Fingerprint login error: {err}"
+                )
+            )
+
+
+    def update_fingerprint_login_status(self, success, message, user=None):
+        self.fingerprint_login_btn.configure(
+            state="normal",
+            text="Login with Fingerprint"
+        )
+        self.login_btn.configure(state="normal")
+        self.face_login_btn.configure(state="normal")
 
         if success and user:
             show_toast(self, message, "success")

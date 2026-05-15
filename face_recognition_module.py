@@ -4,6 +4,9 @@ import os
 import tempfile
 import time
 from deepface import DeepFace
+
+# Load model once
+model = DeepFace.build_model("VGG-Face")
 from config import (
     DEEPFACE_MODEL, DEEPFACE_DETECTOR, FACE_MATCH_THRESHOLD,
     RECOGNITION_BUFFER_SIZE, MIN_CONFIRMATIONS, CHECK_INTERVAL

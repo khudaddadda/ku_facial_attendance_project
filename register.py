@@ -1,24 +1,36 @@
-import customtkinter as ctk
-from PIL import Image
-import threading
-from config import COLORS, APP_TITLE, IMAGES_PATH
-from utils import show_toast, center_window
-from face_recognition_module import face_recognizer
-from db import db
 import hashlib
-import os
+import threading
+import customtkinter as ctk
+from tkinter import messagebox
+
+from config import APP_TITLE, COLORS
+from db import db
+from utils import center_window, show_toast
+from face_recognition_module import face_recognizer
+from fingerprint_module import fingerprint_module
 
 
 class RegisterPage(ctk.CTkFrame):
-    """Registration page with face capture"""
+    """Registration page for creating the first Super Admin and later Admin accounts."""
 
     def __init__(self, parent, on_success):
-        super().__init__(parent, fg_color=COLORS['bg_light'])
+        super().__init__(parent, fg_color=COLORS["bg_light"])
+
+        # Parent/app references
         self.parent = parent
+        self.master = parent
         self.on_success = on_success
+
+        # Biometric state
         self.face_embedding = None
+        self.palm_embedding = None
+        self.iris_embedding = None
+        self.fingerprint_id = None
+
+        # Track whether face has been captured successfully
         self.captured = False
 
+        # Build UI
         self.create_ui()
 
     def create_ui(self):
@@ -145,11 +157,11 @@ class RegisterPage(ctk.CTkFrame):
             fg_color=COLORS['info'],
             hover_color=COLORS['secondary'],
             corner_radius=8,
-            command=self.capture_face_thread
+            command=self.start_face_capture
         )
         self.capture_btn.pack(pady=(0, 10))
 
-        # Status label
+        # Face status label
         self.status_label = ctk.CTkLabel(
             form_inner,
             text="",
@@ -157,6 +169,29 @@ class RegisterPage(ctk.CTkFrame):
             text_color=COLORS['success']
         )
         self.status_label.pack(pady=(0, 15))
+
+        # Fingerprint button
+        self.fingerprint_btn = ctk.CTkButton(
+            form_inner,
+            text="Enroll Fingerprint",
+            width=350,
+            height=45,
+            font=("Roboto", 14, "bold"),
+            fg_color="#7c3aed",
+            hover_color="#6d28d9",
+            corner_radius=8,
+            command=self.enroll_fingerprint
+        )
+        self.fingerprint_btn.pack(pady=(0, 10))
+
+        # Fingerprint status label
+        self.fingerprint_status = ctk.CTkLabel(
+            form_inner,
+            text="Fingerprint: Not enrolled",
+            font=("Roboto", 12),
+            text_color="gray"
+        )
+        self.fingerprint_status.pack(pady=(0, 15))
 
         # Register button
         self.register_btn = ctk.CTkButton(
@@ -193,65 +228,222 @@ class RegisterPage(ctk.CTkFrame):
         login_link.pack(side="left")
         login_link.bind("<Button-1>", lambda e: self.on_success())
 
-    def capture_face_thread(self):
-        """Capture face in separate thread"""
-        self.capture_btn.configure(state="disabled", text="Opening camera...")
+    # ============================================================
+    # Face capture
+    # ============================================================
+
+    def start_face_capture(self):
+        """Start face capture in a separate thread to avoid freezing the UI."""
+        self.capture_btn.configure(state="disabled", text="Opening Camera...")
+        self.status_label.configure(text="Capturing face...", text_color="orange")
+
         threading.Thread(target=self.capture_face, daemon=True).start()
 
     def capture_face(self):
-        """Capture face using webcam AND save image"""
+        """Capture face using the existing face recognition module."""
         try:
-            # Get username for filename
-            username = self.username_entry.get().strip()
-            if not username:
-                username = "temp_user"
-            
-            # Create save path
-            save_path = os.path.join(IMAGES_PATH, f"admin_{username}.jpg")
-            
-            # Capture face WITH save path
-            face_image = face_recognizer.capture_face(save_path=save_path)
+            face_img = face_recognizer.capture_face()
 
-            if face_image is not None:
-                # Generate embedding
-                embedding = face_recognizer.generate_embedding(face_image)
+            if face_img is None:
+                self.after(0, self.update_capture_status, False, "Face capture cancelled or failed")
+                return
 
-                if embedding:
-                    self.face_embedding = embedding
-                    self.captured = True
-                    self.after(0, self.update_capture_status, True, "Face captured and saved")
-                else:
-                    self.after(0, self.update_capture_status, False, "No face detected. Please try again.")
-            else:
-                self.after(0, self.update_capture_status, False, "Face capture cancelled")
+            embedding = face_recognizer.generate_embedding(face_img)
+
+            if embedding is None:
+                self.after(0, self.update_capture_status, False, "No face detected")
+                return
+
+            self.face_embedding = embedding
+            self.captured = True
+
+            self.after(0, self.update_capture_status, True, "Face captured successfully!")
+
         except Exception as e:
-            self.after(0, self.update_capture_status, False, f"Error: {str(e)}")
+            self.after(0, self.update_capture_status, False, f"Capture error: {e}")
 
-    def update_capture_status(self, success, message="Face captured successfully"):
-        """Update capture status UI"""
+    def update_capture_status(self, success, message):
+        """Update face capture status in the UI."""
         if success:
-            self.capture_btn.configure(
-                text="Face Captured",
-                fg_color=COLORS['success'],
-                state="disabled"
-            )
-            self.status_label.configure(text=message, text_color=COLORS['success'])
+            self.status_label.configure(text=message, text_color="green")
+            self.capture_btn.configure(state="normal", text="Capture Face Again")
+            show_toast(self, message, "success")
         else:
-            self.capture_btn.configure(
-                text="Capture Face",
-                state="normal"
+            self.status_label.configure(text=message, text_color="red")
+            self.capture_btn.configure(state="normal", text="Capture Face")
+            show_toast(self, message, "error")
+
+    # ============================================================
+    # Fingerprint enrollment
+    # ============================================================
+
+    def enroll_fingerprint(self):
+        """Start fingerprint enrollment in background thread"""
+
+        threading.Thread(
+            target=self._enroll_fingerprint_thread,
+            daemon=True
+        ).start()
+
+
+    def _enroll_fingerprint_thread(self):
+
+        try:
+
+            self.after(
+                0,
+                lambda: self.fingerprint_btn.configure(
+                    state="disabled",
+                    text="Enrolling..."
+                )
             )
-            self.status_label.configure(text=message, text_color=COLORS['danger'])
+
+            self.after(
+                0,
+                lambda: self.fingerprint_status.configure(
+                    text="Starting fingerprint enrollment...",
+                    text_color="orange"
+                )
+            )
+
+            fingerprint_id = db.get_next_fingerprint_id()
+
+            def enrollment_callback(message):
+
+                if message == "ENROLL_START":
+
+                    self.after(
+                        0,
+                        lambda: show_toast(
+                            self,
+                            "Fingerprint enrollment started",
+                            "info"
+                        )
+                    )
+
+                elif message == "Place finger":
+
+                    self.after(
+                        0,
+                        lambda: show_toast(
+                            self,
+                            "Place finger on sensor",
+                            "info"
+                        )
+                    )
+
+                elif message == "Remove finger":
+
+                    self.after(
+                        0,
+                        lambda: show_toast(
+                            self,
+                            "Remove finger",
+                            "warning"
+                        )
+                    )
+
+                elif message == "Place same finger again":
+
+                    self.after(
+                        0,
+                        lambda: show_toast(
+                            self,
+                            "Place the same finger again",
+                            "info"
+                        )
+                    )
+
+            success = fingerprint_module.enroll_fingerprint(
+                fingerprint_id,
+                callback=enrollment_callback
+            )
+
+            if success:
+
+                self.fingerprint_id = fingerprint_id
+
+                self.after(
+                    0,
+                    lambda: self.fingerprint_status.configure(
+                        text=f"Fingerprint: Enrolled (ID {fingerprint_id})",
+                        text_color="green"
+                    )
+                )
+
+                self.after(
+                    0,
+                    lambda: self.fingerprint_btn.configure(
+                        state="disabled",
+                        text="Fingerprint Enrolled"
+                    )
+                )
+
+                self.after(
+                    0,
+                    lambda: show_toast(
+                        self,
+                        f"Fingerprint enrolled successfully! ID: {fingerprint_id}",
+                        "success"
+                    )
+                )
+
+            else:
+
+                self.after(
+                    0,
+                    lambda: self.fingerprint_btn.configure(
+                        state="normal",
+                        text="Enroll Fingerprint"
+                    )
+                )
+
+                self.after(
+                    0,
+                    lambda: self.fingerprint_status.configure(
+                        text="Fingerprint enrollment failed",
+                        text_color="red"
+                    )
+                )
+
+                self.after(
+                    0,
+                    lambda: show_toast(
+                        self,
+                        "Fingerprint enrollment failed",
+                        "error"
+                    )
+                )
+
+        except Exception as e:
+
+            self.after(
+                0,
+                lambda: self.fingerprint_btn.configure(
+                    state="normal",
+                    text="Enroll Fingerprint"
+                )
+            )
+
+            self.after(
+                0,
+                lambda: show_toast(
+                    self,
+                    f"Fingerprint enrollment failed: {e}",
+                    "error"
+                )
+            )
+    # ============================================================
+    # Registration logic
+    # ============================================================
 
     def register_user(self):
-        """Register new user"""
-        # Get form data
+        """Validate form and register a new user/admin."""
         name = self.name_entry.get().strip()
         username = self.username_entry.get().strip()
-        password = self.password_entry.get()
-        confirm_password = self.confirm_password_entry.get()
+        password = self.password_entry.get().strip()
+        confirm_password = self.confirm_password_entry.get().strip()
 
-        # Validation
         if not name:
             show_toast(self, "Please enter your full name", "error")
             return
@@ -276,11 +468,25 @@ class RegisterPage(ctk.CTkFrame):
             show_toast(self, "Passwords do not match", "error")
             return
 
-        if not self.captured:
+        if not self.captured or self.face_embedding is None:
             show_toast(self, "Please capture your face first", "error")
             return
 
-        # Check for duplicate face
+        user_count = db.get_user_count()
+
+        if user_count > 0:
+            current_user = getattr(self.master, "current_user", None)
+            if not current_user or current_user.get("role") != "super_admin":
+                messagebox.showerror(
+                    "Access Denied",
+                    "Only Super Admin can create new admin accounts."
+                )
+                return
+
+        if db.check_user_exists(username):
+            show_toast(self, "Username already exists", "error")
+            return
+
         duplicate = db.check_duplicate_face_user(self.face_embedding)
         if duplicate:
             show_toast(
@@ -290,27 +496,46 @@ class RegisterPage(ctk.CTkFrame):
             )
             return
 
-        # Hash password
         hashed_password = hashlib.sha256(password.encode()).hexdigest()
 
-        # Register in database
-        success = db.register_user(username, hashed_password, name, self.face_embedding)
+        if user_count == 0:
+            role = "super_admin"
+        else:
+            role = "admin"
+
+        success = db.register_user(
+            username=username,
+            password=hashed_password,
+            name=name,
+            role=role,
+            face_embedding=self.face_embedding,
+            palm_embedding=self.palm_embedding,
+            iris_embedding=self.iris_embedding,
+            fingerprint_id=self.fingerprint_id
+        )
 
         if success:
-            show_toast(self, f"Registration successful. Welcome {name}", "success")
-            # Redirect to login after 1.5 seconds
+            if role == "super_admin":
+                show_toast(self, "Super Admin registered successfully!", "success")
+            else:
+                show_toast(self, "Admin registered successfully!", "success")
+
             self.after(1500, self.go_to_login)
         else:
-            show_toast(self, "Username already exists. Please choose another.", "error")
+            show_toast(self, "Registration failed", "error")
+
+    # ============================================================
+    # Navigation
+    # ============================================================
 
     def go_to_login(self):
-        """Close registration and go to login page"""
+        """Close registration view and return to login."""
         self.destroy()
         self.on_success()
 
 
 def show_register_window(on_success):
-    """Show registration window"""
+    """Show registration window."""
     window = ctk.CTk()
     window.title(f"{APP_TITLE} - Register")
     center_window(window, 600, 750)

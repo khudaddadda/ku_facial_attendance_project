@@ -7,6 +7,9 @@ from config import COLORS, IMAGES_PATH, NUM_FACE_SAMPLES
 from utils import show_toast, generate_student_id, validate_email, validate_phone
 from face_recognition_module import face_recognizer
 from db import db
+from palm_recognition_module import palm_recognizer
+from iris_recognition_module import IrisRecognizer
+from fingerprint_module import fingerprint_module
 
 
 
@@ -19,6 +22,16 @@ class StudentManagement(ctk.CTkFrame):
         self.face_embedding = None
         self.face_embeddings_list = None
         self.face_captured = False
+
+        self.palm_embedding = None
+        self.palm_captured = False
+
+        self.iris_embedding = None
+        self.iris_captured = False
+        self.iris_recognizer = IrisRecognizer()
+        
+
+        self.fingerprint_id = None
         self.create_ui()
         self.load_students()
 
@@ -121,6 +134,14 @@ class StudentManagement(ctk.CTkFrame):
         self.face_embedding = None
         self.face_embeddings_list = None
 
+        self.palm_captured = False
+        self.palm_embedding = None
+
+        self.iris_captured = False
+        self.iris_embedding = None
+
+        self.fingerprint_id = None
+
         main_frame = ctk.CTkScrollableFrame(self.form_window, fg_color=COLORS['bg_light'])
         main_frame.pack(fill="both", expand=True, padx=20, pady=20)
         ctk.CTkLabel(main_frame, text="➕ Add New Student", font=("Roboto", 22, "bold"), text_color=COLORS['primary']).pack(pady=(0, 20))
@@ -162,6 +183,66 @@ class StudentManagement(ctk.CTkFrame):
         self.capture_btn.pack(pady=(0, 10))
         self.capture_status = ctk.CTkLabel(form_inner, text="", font=("Roboto", 11))
         self.capture_status.pack(pady=(0, 15))
+        #===========palm btn=======
+        self.palm_btn = ctk.CTkButton(
+            form_inner,
+            text="🖐️ Capture Palm",
+            width=450,
+            height=40,
+            font=("Roboto", 13, "bold"),
+            fg_color="#7c3aed",
+            hover_color="#6d28d9",
+            command=self.capture_palm_thread
+        )
+        self.palm_btn.pack(pady=(0, 10))
+
+        self.palm_status = ctk.CTkLabel(
+            form_inner,
+            text="",
+            font=("Roboto", 11)
+        )
+        self.palm_status.pack(pady=(0, 15))
+        
+        #iris btun
+        
+        
+        self.iris_btn = ctk.CTkButton(
+            form_inner,
+            text="👁️ Capture Iris",
+            width=450,
+            height=40,
+            font=("Roboto", 13, "bold"),
+            fg_color="#0ea5e9",
+            hover_color="#0284c7",
+            command=self.capture_iris_thread
+        )
+        self.iris_btn.pack(pady=(0, 10))
+
+        self.iris_status = ctk.CTkLabel(
+            form_inner,
+            text="",
+            font=("Roboto", 11)
+        )
+        self.iris_status.pack(pady=(0, 15))
+        self.fingerprint_btn = ctk.CTkButton(
+            form_inner,
+            text="🔑 Enroll Fingerprint",
+            width=450,
+            height=40,
+            font=("Roboto", 13, "bold"),
+            fg_color="#7c3aed",
+            hover_color="#6d28d9",
+            command=self.enroll_student_fingerprint
+        )
+        self.fingerprint_btn.pack(pady=(0, 10))
+
+        self.fingerprint_status = ctk.CTkLabel(
+            form_inner,
+            text="Fingerprint: Not enrolled",
+            font=("Roboto", 11),
+            text_color="gray"
+        )
+        self.fingerprint_status.pack(pady=(0, 15))
 
         btn_frame = ctk.CTkFrame(form_inner, fg_color="transparent")
         btn_frame.pack(fill="x", pady=(10, 0))
@@ -171,6 +252,48 @@ class StudentManagement(ctk.CTkFrame):
     def capture_student_faces_thread(self):
         self.capture_btn.configure(state="disabled", text="Opening camera...")
         threading.Thread(target=self.capture_student_faces, daemon=True).start()
+    #add palm capture thread    
+    def capture_palm_thread(self):
+        self.palm_btn.configure(state="disabled", text="Opening camera...")
+        threading.Thread(target=self.capture_palm, daemon=True).start()
+        
+    def capture_palm(self):
+        try:
+            palm_embedding = palm_recognizer.capture_palm()
+
+            if palm_embedding is not None:
+                self.palm_embedding = palm_embedding
+                self.palm_captured = True
+                self.form_window.after(
+                    0,
+                    self.update_palm_status,
+                    True,
+                    "Palm captured successfully!"
+                )
+            else:
+                self.form_window.after(
+                    0,
+                    self.update_palm_status,
+                    False,
+                    "Palm capture cancelled or no palm detected"
+                )
+
+        except Exception as e:
+            print("capture_palm error:", e)
+            self.form_window.after(
+                0,
+                self.update_palm_status,
+                False,
+                f"Error: {e}"
+            )
+            
+    def update_palm_status(self, success, msg):
+        if success:
+            self.palm_btn.configure(text="✅ Palm Captured", fg_color=COLORS['success'], state="disabled")
+            self.palm_status.configure(text=msg, text_color=COLORS['success'])
+        else:
+            self.palm_btn.configure(text="🖐️ Capture Palm", state="normal")
+            self.palm_status.configure(text=f"Error: {msg}", text_color=COLORS['danger'])
 
     def capture_student_faces(self):
         try:
@@ -210,6 +333,111 @@ class StudentManagement(ctk.CTkFrame):
         else:
             self.capture_btn.configure(text="📸 Capture Face", state="normal")
             self.capture_status.configure(text=f"Error: {msg}", text_color=COLORS['danger'])
+            
+            
+    #enroll fingerprint of student
+    def enroll_student_fingerprint(self):
+        threading.Thread(
+            target=self._enroll_student_fingerprint_thread,
+            daemon=True
+        ).start()
+
+
+    def _enroll_student_fingerprint_thread(self):
+        try:
+            self.form_window.after(0, lambda: self.fingerprint_btn.configure(
+                state="disabled",
+                text="Enrolling..."
+            ))
+
+            self.form_window.after(0, lambda: self.fingerprint_status.configure(
+                text="Starting fingerprint enrollment...",
+                text_color="orange"
+            ))
+
+            fingerprint_id = db.get_next_fingerprint_id()
+
+            def enrollment_callback(message):
+                if message == "ENROLL_START":
+                    self.form_window.after(0, lambda: show_toast(
+                        self.form_window,
+                        "Fingerprint enrollment started",
+                        "info"
+                    ))
+
+                elif message == "Place finger":
+                    self.form_window.after(0, lambda: show_toast(
+                        self.form_window,
+                        "Place finger on sensor",
+                        "info"
+                    ))
+
+                elif message == "Remove finger":
+                    self.form_window.after(0, lambda: show_toast(
+                        self.form_window,
+                        "Remove finger",
+                        "warning"
+                    ))
+
+                elif message == "Place same finger again":
+                    self.form_window.after(0, lambda: show_toast(
+                        self.form_window,
+                        "Place the same finger again",
+                        "info"
+                    ))
+
+            success = fingerprint_module.enroll_fingerprint(
+                fingerprint_id,
+                callback=enrollment_callback
+            )
+
+            if success:
+                self.fingerprint_id = fingerprint_id
+
+                self.form_window.after(0, lambda: self.fingerprint_status.configure(
+                    text=f"Fingerprint: Enrolled (ID {fingerprint_id})",
+                    text_color="green"
+                ))
+
+                self.form_window.after(0, lambda: self.fingerprint_btn.configure(
+                    state="disabled",
+                    text="Fingerprint Enrolled"
+                ))
+
+                self.form_window.after(0, lambda: show_toast(
+                    self.form_window,
+                    f"Fingerprint enrolled successfully! ID: {fingerprint_id}",
+                    "success"
+                ))
+
+            else:
+                self.form_window.after(0, lambda: self.fingerprint_btn.configure(
+                    state="normal",
+                    text="🔑 Enroll Fingerprint"
+                ))
+
+                self.form_window.after(0, lambda: self.fingerprint_status.configure(
+                    text="Fingerprint enrollment failed",
+                    text_color="red"
+                ))
+
+                self.form_window.after(0, lambda: show_toast(
+                    self.form_window,
+                    "Fingerprint enrollment failed",
+                    "error"
+                ))
+
+        except Exception as e:
+            self.form_window.after(0, lambda: self.fingerprint_btn.configure(
+                state="normal",
+                text="🔑 Enroll Fingerprint"
+            ))
+
+            self.form_window.after(0, lambda: show_toast(
+                self.form_window,
+                f"Fingerprint enrollment failed: {e}",
+                "error"
+            ))
 
     def save_student(self):
         name = self.name_var.get().strip()
@@ -237,9 +465,52 @@ class StudentManagement(ctk.CTkFrame):
         if dup:
             show_toast(self.form_window, f"Face already registered to {dup['name']}", "error")
             return
+        """
+        # ---------------duplicate palm----------
+            if self.palm_embedding is not None:
+            palm_dup = db.check_duplicate_palm_student(self.palm_embedding)
+            if palm_dup:
+                show_toast(
+                    self.form_window,
+                    f"Palm already registered to {palm_dup['name']}",
+                    "error"
+                )
+                return
+        """
 
         photo_path = f"{IMAGES_PATH}{student_id}.jpg"
-        success = db.add_student(student_id, name, roll_no, department, year, email, phone, photo_path, self.face_embedding)
+        # Convert numpy arrays to normal Python lists before saving
+        face_embedding_to_save = (
+            self.face_embedding.tolist()
+            if self.face_embedding is not None and hasattr(self.face_embedding, "tolist")
+            else self.face_embedding
+        )
+
+        palm_embedding_to_save = (
+            self.palm_embedding.tolist()
+            if self.palm_embedding is not None and hasattr(self.palm_embedding, "tolist")
+            else self.palm_embedding
+        )
+
+        iris_embedding_to_save = (
+            self.iris_embedding.tolist()
+            if self.iris_embedding is not None and hasattr(self.iris_embedding, "tolist")
+            else self.iris_embedding
+        )
+        success = db.add_student(
+            student_id=student_id,
+            name=name,
+            roll_no=roll_no,
+            department=department,
+            year=year,
+            email=email,
+            phone=phone,
+            photo_path=photo_path,
+            face_embedding=face_embedding_to_save,
+            palm_embedding=palm_embedding_to_save,
+            iris_embedding=iris_embedding_to_save,
+            fingerprint_id=self.fingerprint_id
+        )
         if success:
             if self.face_embeddings_list and len(self.face_embeddings_list) > 1:
                 db.add_multiple_face_embeddings(student_id, self.face_embeddings_list)
@@ -317,6 +588,52 @@ class StudentManagement(ctk.CTkFrame):
         btn_frame.pack(fill="x", pady=(20, 0))
         ctk.CTkButton(btn_frame, text="✅ Update", width=200, height=40, font=("Roboto", 14, "bold"), fg_color=COLORS['success'], command=update).pack(side="left", padx=(0, 10))
         ctk.CTkButton(btn_frame, text="❌ Cancel", width=200, height=40, font=("Roboto", 14, "bold"), fg_color=COLORS['danger'], command=edit_window.destroy).pack(side="left")
+        
+        
+    # add iris cupture
+    def capture_iris_thread(self):
+        self.iris_btn.configure(state="disabled", text="Opening camera...")
+        threading.Thread(target=self.capture_iris, daemon=True).start()
+
+
+    def capture_iris(self):
+        try:
+            iris_embedding = self.iris_recognizer.capture_iris_samples(num_samples=3)
+
+            if iris_embedding is not None:
+                self.iris_embedding = iris_embedding
+                self.iris_captured = True
+                self.form_window.after(
+                    0,
+                    self.update_iris_status,
+                    True,
+                    "Iris captured successfully!"
+                )
+            else:
+                self.form_window.after(
+                    0,
+                    self.update_iris_status,
+                    False,
+                    "Iris capture cancelled or no eye detected"
+                )
+
+        except Exception as e:
+            print("capture_iris error:", e)
+            self.form_window.after(
+                0,
+                self.update_iris_status,
+                False,
+                f"Error: {e}"
+            )
+
+
+    def update_iris_status(self, success, msg):
+        if success:
+            self.iris_btn.configure(text="✅ Iris Captured", fg_color=COLORS['success'], state="disabled")
+            self.iris_status.configure(text=msg, text_color=COLORS['success'])
+        else:
+            self.iris_btn.configure(text="👁️ Capture Iris", state="normal")
+            self.iris_status.configure(text=f"Error: {msg}", text_color=COLORS['danger'])
 
     def delete_student(self):
         selected = self.tree.selection()

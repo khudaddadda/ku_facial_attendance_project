@@ -8,7 +8,6 @@ from login import LoginPage
 from dashboard import Dashboard
 
 
-
 class AttendanceApp(ctk.CTk):
     """Main application window - Entry point of the system"""
 
@@ -19,7 +18,7 @@ class AttendanceApp(ctk.CTk):
         # Get screen size for responsive window
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
-        
+
         # Set initial size to 80% of screen (responsive)
         init_width = min(int(screen_width * 0.8), DEFAULT_WINDOW_WIDTH)
         init_height = min(int(screen_height * 0.8), DEFAULT_WINDOW_HEIGHT)
@@ -35,15 +34,16 @@ class AttendanceApp(ctk.CTk):
 
         # Create necessary directories
         ensure_directories()
-        
+
         # Center window on screen
         center_window(self, self.winfo_width(), self.winfo_height())
 
         # Current frame reference
         self.current_frame = None
+        self.current_user = None
 
         # Check if any user exists
-        if not db.check_user_exists():
+        if db.get_user_count() == 0:
             print("No users found. Showing registration page...")
             self.show_register()
         else:
@@ -56,20 +56,35 @@ class AttendanceApp(ctk.CTk):
             self.current_frame.destroy()
             self.current_frame = None
 
-    def show_register(self):
+    def show_register(self, return_to_dashboard=False):
         """Show registration page"""
+        if db.get_user_count() > 0:
+            if not self.current_user or self.current_user.get("role") != "super_admin":
+                self.show_login()
+                return
+
         self.clear_frame()
-        self.current_frame = RegisterPage(self, self.show_login)
+
+        if return_to_dashboard:
+            self.current_frame = RegisterPage(
+                self,
+                lambda: self.show_dashboard(self.current_user)
+            )
+        else:
+            self.current_frame = RegisterPage(self, self.show_login)
+
         self.current_frame.pack(fill="both", expand=True)
 
     def show_login(self):
         """Show login page"""
+        self.current_user = None
         self.clear_frame()
         self.current_frame = LoginPage(self, self.show_dashboard, self.show_register)
         self.current_frame.pack(fill="both", expand=True)
 
     def show_dashboard(self, user_data):
         """Show main dashboard"""
+        self.current_user = user_data
         self.clear_frame()
         self.current_frame = Dashboard(self, user_data, self.show_login)
         self.current_frame.pack(fill="both", expand=True)
@@ -100,7 +115,6 @@ def main():
     except Exception as e:
         print(f" Application error: {e}")
         db.close()
-        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,14 @@ from utils import show_toast, get_display_date, get_display_time
 from student import StudentManagement
 from attendance import AttendanceModule
 from face_recognition_module import face_recognizer
+from palm_recognition_module import palm_recognizer
+from iris_recognition_module import IrisRecognizer
 from db import db
+from fingerprint_module import fingerprint_module
+from fingerprint_module import fingerprint_module
+#=========createing object========
+#palm_recognizer = PalmRecognizer()
+iris_recognizer = IrisRecognizer()
 
 
 
@@ -18,6 +25,7 @@ class Dashboard(ctk.CTkFrame):
         super().__init__(parent, fg_color=COLORS['bg_light'])
         self.parent = parent
         self.user_data = user_data
+        self.user_role = user_data.get("role", "admin")
         self.on_logout = on_logout
         self.current_frame = None
 
@@ -28,7 +36,12 @@ class Dashboard(ctk.CTkFrame):
     def create_ui(self):
         """Create dashboard UI"""
         # Sidebar
-        self.sidebar = ctk.CTkFrame(self, fg_color=COLORS['dark'], width=250, corner_radius=0)
+        self.sidebar = ctk.CTkFrame(
+            self,
+            fg_color=COLORS['dark'],
+            width=250,
+            corner_radius=0
+        )
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
 
@@ -44,7 +57,8 @@ class Dashboard(ctk.CTkFrame):
 
         ctk.CTkLabel(
             logo_frame,
-            text="Attendance System",
+            #text="Attendance System",
+            text="facial recognition Attendance System",
             font=("Roboto", 14, "bold"),
             text_color="white"
         ).pack(pady=(0, 10))
@@ -55,7 +69,7 @@ class Dashboard(ctk.CTkFrame):
 
         ctk.CTkLabel(
             user_frame,
-            text=f"Welcome,",
+            text="Welcome,",
             font=("Roboto", 11),
             text_color="gray"
         ).pack(anchor="w")
@@ -67,17 +81,42 @@ class Dashboard(ctk.CTkFrame):
             text_color="white"
         ).pack(anchor="w")
 
-        # Navigation buttons
+        role_text = "Super Admin" if self.user_role == "super_admin" else "Admin"
+
+        ctk.CTkLabel(
+            user_frame,
+            text=f"Role: {role_text}",
+            font=("Roboto", 12, "bold"),
+            text_color="#fbbf24" if self.user_role == "super_admin" else "#93c5fd"
+        ).pack(anchor="w", pady=(4, 0))
+
+        # Navigation buttons plus tested button
         nav_buttons = [
             ("🏠 Dashboard", self.show_home, COLORS['primary']),
             ("👥 Student Management", self.show_students, COLORS['secondary']),
-            ("📸 Mark Attendance", self.start_face_recognition, COLORS['success']),
+            ("📸 Mark Attendance", self.open_attendance_menu, COLORS['success']),
+            ("🖐 Test Palm", self.start_palm_test, "#f59e0b"),
+            ("👁 Test Iris", self.start_iris_test, "#8b5cf6"),
             ("📊 Attendance Report", self.show_attendance, COLORS['info']),
         ]
 
+        if self.user_role == "super_admin":
+            nav_buttons.extend([
+                ("🛡️ Manage Admins", self.show_manage_admins, "#7c3aed"),
+                ("⚙️ System Overview", self.show_system_overview, "#ea580c"),
+            ])
+            
+        # Scrollable menu area
+        self.menu_scroll = ctk.CTkScrollableFrame(
+            self.sidebar,
+            fg_color="transparent",
+            width=220
+        )
+        self.menu_scroll.pack(fill="both", expand=True, padx=5, pady=(0, 10))
+
         for text, command, color in nav_buttons:
             btn = ctk.CTkButton(
-                self.sidebar,
+                self.menu_scroll,
                 text=text,
                 font=("Roboto", 14, "bold"),
                 fg_color=color,
@@ -87,9 +126,9 @@ class Dashboard(ctk.CTkFrame):
                 corner_radius=8,
                 command=command
             )
-            btn.pack(fill="x", padx=15, pady=5)
+            btn.pack(fill="x", padx=10, pady=5)
 
-        # Logout button (at bottom)
+        # Logout button
         logout_btn = ctk.CTkButton(
             self.sidebar,
             text="🚪 Logout",
@@ -100,7 +139,7 @@ class Dashboard(ctk.CTkFrame):
             corner_radius=8,
             command=self.logout
         )
-        logout_btn.pack(side="bottom", fill="x", padx=15, pady=15)
+        logout_btn.pack(fill="x", padx=15, pady=15)
 
         # Main content area
         self.content_area = ctk.CTkFrame(self, fg_color=COLORS['bg_light'])
@@ -208,6 +247,204 @@ class Dashboard(ctk.CTkFrame):
 
         # Create graph
         self.create_attendance_graph(graph_frame)
+        
+    def show_manage_admins(self):
+        """Show super admin admin-management page"""
+        self.clear_content()
+
+        self.current_frame = ctk.CTkFrame(self.content_area, fg_color="transparent")
+        self.current_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        ctk.CTkLabel(
+            self.current_frame,
+            text="🛡️ Manage Admins",
+            font=("Roboto", 24, "bold"),
+            text_color=COLORS['dark']
+        ).pack(anchor="w", pady=(0, 20))
+
+        # Top action bar
+        top_bar = ctk.CTkFrame(self.current_frame, fg_color="transparent")
+        top_bar.pack(fill="x", pady=(0, 15))
+
+        ctk.CTkButton(
+            top_bar,
+            text="➕ Add New Admin",
+            font=("Roboto", 13, "bold"),
+            fg_color="#7c3aed",
+            hover_color="#6d28d9",
+            command=self.open_create_admin
+        ).pack(side="left")
+
+        # Table area
+        table_frame = ctk.CTkFrame(
+            self.current_frame,
+            fg_color="white",
+            corner_radius=15,
+            border_width=2,
+            border_color="#7c3aed"
+        )
+        table_frame.pack(fill="both", expand=True)
+
+        admins = db.get_admin_users()
+
+        if not admins:
+            ctk.CTkLabel(
+                table_frame,
+                text="No admin accounts found",
+                font=("Roboto", 14),
+                text_color="gray"
+            ).pack(pady=40)
+            return
+
+        for admin in admins:
+            row = ctk.CTkFrame(table_frame, fg_color="transparent")
+            row.pack(fill="x", padx=20, pady=10)
+
+            info_text = f"{admin['name']}  |  {admin['username']}  |  {admin['role']}"
+            ctk.CTkLabel(
+                row,
+                text=info_text,
+                font=("Roboto", 13),
+                text_color=COLORS['dark']
+            ).pack(side="left")
+
+            if admin["id"] != self.user_data["id"]:
+                ctk.CTkButton(
+                    row,
+                    text="Delete",
+                    width=90,
+                    fg_color=COLORS['danger'],
+                    hover_color="#dc2626",
+                    command=lambda admin_id=admin["id"]: self.delete_admin(admin_id)
+                ).pack(side="right")
+                
+                
+    # attandance menu
+    def open_attendance_menu(self):
+        """Open menu for selecting attendance method"""
+        import customtkinter as ctk
+
+        menu = ctk.CTkToplevel(self)
+        menu.title("Select Attendance Method")
+        menu.geometry("400x300")
+        menu.grab_set()
+
+        frame = ctk.CTkFrame(menu)
+        frame.pack(expand=True, fill="both", padx=20, pady=20)
+
+        ctk.CTkLabel(frame, text="Choose Method", font=("Roboto", 18, "bold")).pack(pady=10)
+
+        # Face button
+        ctk.CTkButton(
+            frame,
+            text="📸 Face Recognition",
+            command=lambda: [menu.destroy(), self.start_face_recognition()]
+        ).pack(fill="x", pady=5)
+
+        # Fingerprint button
+        ctk.CTkButton(
+            frame,
+            text="🔑 Fingerprint",
+            command=lambda: [menu.destroy(), self.start_fingerprint_attendance()]
+        ).pack(fill="x", pady=5)
+
+        # Palm (test only)
+        ctk.CTkButton(
+            frame,
+            text="🖐 Palm (Test Only)",
+            command=lambda: [menu.destroy(), self.start_palm_test()]
+        ).pack(fill="x", pady=5)
+
+        # Iris (test only)
+        ctk.CTkButton(
+            frame,
+            text="👁 Iris (Test Only)",
+            command=lambda: [menu.destroy(), self.start_iris_test()]
+        ).pack(fill="x", pady=5)
+        
+    # fingerprint atttandance
+    def start_fingerprint_attendance(self):
+        """Start continuous fingerprint attendance in background"""
+        if hasattr(self, "fingerprint_running") and self.fingerprint_running:
+            show_toast(self, "Fingerprint attendance already running", "warning")
+            return
+
+        self.fingerprint_running = True
+        threading.Thread(target=self.run_fingerprint_attendance, daemon=True).start()
+        
+        
+        
+    def run_fingerprint_attendance(self):
+        """Continuously scan fingerprints and mark attendance"""
+
+        self.after(0, lambda: show_toast(self, "Fingerprint attendance started", "info"))
+
+        while self.fingerprint_running:
+            try:
+                fingerprint_id = fingerprint_module.read_fingerprint_id()
+
+                if fingerprint_id is None:
+                    continue
+
+                students = db.get_all_students()
+                matched_student = None
+
+                for student in students:
+                    if student.get("fingerprint_id") == fingerprint_id:
+                        matched_student = student
+                        break
+
+                if not matched_student:
+                    self.after(
+                        0,
+                        lambda fid=fingerprint_id: show_toast(
+                            self,
+                            f"No student linked to fingerprint ID {fid}",
+                            "error"
+                        )
+                    )
+                    continue
+
+                success, msg = db.mark_attendance(
+                    matched_student["student_id"],
+                    matched_student["name"],
+                    matched_student["department"],
+                    datetime.now().date(),
+                    datetime.now().time()
+                )
+
+                if success:
+                    self.after(
+                        0,
+                        lambda name=matched_student["name"]: show_toast(
+                            self,
+                            f"Attendance marked for {name}",
+                            "success"
+                        )
+                    )
+
+                    # Refresh attendance report if it is currently open
+                    if hasattr(self.current_frame, "load_attendance"):
+                        self.after(0, self.current_frame.load_attendance)
+
+                    # Refresh dashboard stats if needed
+                    self.after(1000, self.show_home)
+                else:
+                    self.after(
+                        0,
+                        lambda message=msg: show_toast(self, message, "warning")
+                    )
+
+            except Exception as e:
+                self.after(
+                    0,
+                    lambda err=str(e): show_toast(
+                        self,
+                        f"Fingerprint error: {err}",
+                        "error"
+                    )
+                )
+                self.fingerprint_running = False
 
     def create_attendance_graph(self, parent):
         """Create attendance trend graph using matplotlib"""
@@ -433,6 +670,293 @@ class Dashboard(ctk.CTkFrame):
 
         except Exception as e:
             self.after(0, lambda: show_toast(self, f"Recognition error: {str(e)}", "error"))
+            
+            
+    #===============tested palm method
+    
+    def start_palm_test(self):
+        """Open confirmation and start palm recognition in test mode"""
+        confirm_window = ctk.CTkToplevel(self)
+        confirm_window.title("Test Palm Recognition")
+        confirm_window.geometry("450x200")
+        confirm_window.resizable(False, False)
+        confirm_window.grab_set()
+        confirm_window.transient(self)
+
+        confirm_window.update_idletasks()
+        width = confirm_window.winfo_width()
+        height = confirm_window.winfo_height()
+        x = (confirm_window.winfo_screenwidth() // 2) - (width // 2)
+        y = (confirm_window.winfo_screenheight() // 2) - (height // 2)
+        confirm_window.geometry(f"{width}x{height}+{x}+{y}")
+
+        frame = ctk.CTkFrame(confirm_window, fg_color=COLORS['bg_light'])
+        frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        ctk.CTkLabel(
+            frame,
+            text="🖐 Start Palm Test?",
+            font=("Roboto", 20, "bold"),
+            text_color="#f59e0b"
+        ).pack(pady=(10, 15))
+
+        ctk.CTkLabel(
+            frame,
+            text="Camera will open for palm recognition test only.\nAttendance will NOT be marked.",
+            font=("Roboto", 13),
+            text_color="gray",
+            wraplength=400
+        ).pack(pady=(0, 20))
+
+        button_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        button_frame.pack()
+
+        def start_test():
+            confirm_window.destroy()
+            threading.Thread(target=self.run_palm_test, daemon=True).start()
+
+        ctk.CTkButton(
+            button_frame,
+            text="✅ Start",
+            width=150,
+            height=40,
+            font=("Roboto", 14, "bold"),
+            fg_color=COLORS['success'],
+            hover_color=COLORS['info'],
+            command=start_test
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            button_frame,
+            text="❌ Cancel",
+            width=150,
+            height=40,
+            font=("Roboto", 14, "bold"),
+            fg_color=COLORS['danger'],
+            hover_color="#dc2626",
+            command=confirm_window.destroy
+        ).pack(side="left")
+
+
+    def run_palm_test(self):
+        """Run palm recognition in test mode only"""
+        try:
+            students = db.get_all_students()
+
+            stored_embeddings = []
+            for student in students:
+                palm_embedding = student.get("palm_embedding")
+                if palm_embedding:
+                    try:
+                        if isinstance(palm_embedding, str):
+                            palm_embedding = json.loads(palm_embedding)
+
+                        stored_embeddings.append({
+                            "id": student["student_id"],
+                            "name": student["name"],
+                            "embedding": palm_embedding
+                        })
+                    except Exception as e:
+                        print("Palm embedding parse error:", e)
+
+            if not stored_embeddings:
+                self.after(0, lambda: show_toast(self, "No palm data found", "warning"))
+                return
+
+            match = palm_recognizer.recognize_palm(stored_embeddings)
+
+            if match:
+                name = match.get("name", "Unknown")
+                self.after(0, lambda: show_toast(self, f"Palm matched: {name}", "success"))
+            else:
+                self.after(0, lambda: show_toast(self, "No palm match found", "warning"))
+
+        except Exception as e:
+            error_message = str(e)
+            self.after(0, lambda msg=error_message: show_toast(self, f"Palm test error: {msg}", "error")) 
+            
+            
+            
+            
+    #=========iris test method=====
+    
+    def start_iris_test(self):
+        """Open confirmation and start iris recognition in test mode"""
+        confirm_window = ctk.CTkToplevel(self)
+        confirm_window.title("Test Iris Recognition")
+        confirm_window.geometry("450x200")
+        confirm_window.resizable(False, False)
+        confirm_window.grab_set()
+        confirm_window.transient(self)
+
+        confirm_window.update_idletasks()
+        width = confirm_window.winfo_width()
+        height = confirm_window.winfo_height()
+        x = (confirm_window.winfo_screenwidth() // 2) - (width // 2)
+        y = (confirm_window.winfo_screenheight() // 2) - (height // 2)
+        confirm_window.geometry(f"{width}x{height}+{x}+{y}")
+
+        frame = ctk.CTkFrame(confirm_window, fg_color=COLORS['bg_light'])
+        frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        ctk.CTkLabel(
+            frame,
+            text="👁 Start Iris Test?",
+            font=("Roboto", 20, "bold"),
+            text_color="#8b5cf6"
+        ).pack(pady=(10, 15))
+
+        ctk.CTkLabel(
+            frame,
+            text="Camera will open for iris recognition test only.\nAttendance will NOT be marked.",
+            font=("Roboto", 13),
+            text_color="gray",
+            wraplength=400
+        ).pack(pady=(0, 20))
+
+        button_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        button_frame.pack()
+
+        def start_test():
+            confirm_window.destroy()
+            threading.Thread(target=self.run_iris_test, daemon=True).start()
+
+        ctk.CTkButton(
+            button_frame,
+            text="✅ Start",
+            width=150,
+            height=40,
+            font=("Roboto", 14, "bold"),
+            fg_color=COLORS['success'],
+            hover_color=COLORS['info'],
+            command=start_test
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            button_frame,
+            text="❌ Cancel",
+            width=150,
+            height=40,
+            font=("Roboto", 14, "bold"),
+            fg_color=COLORS['danger'],
+            hover_color="#dc2626",
+            command=confirm_window.destroy
+        ).pack(side="left")
+
+
+    def run_iris_test(self):
+        """Run iris recognition in test mode only"""
+        try:
+            students = db.get_all_students()
+
+            stored_embeddings = []
+            for student in students:
+                iris_embedding = student.get("iris_embedding")
+                if iris_embedding:
+                    try:
+                        if isinstance(iris_embedding, str):
+                            iris_embedding = json.loads(iris_embedding)
+
+                        stored_embeddings.append({
+                            "id": student["student_id"],
+                            "name": student["name"],
+                            "embedding": iris_embedding
+                        })
+                    except Exception as e:
+                        print("Iris embedding parse error:", e)
+
+            if not stored_embeddings:
+                self.after(0, lambda: show_toast(self, "No iris data found", "warning"))
+                return
+
+            match = iris_recognizer.recognize_iris(stored_embeddings)
+
+            if match:
+                name = match.get("name", "Unknown")
+                self.after(0, lambda: show_toast(self, f"Iris matched: {name}", "success"))
+            else:
+                self.after(0, lambda: show_toast(self, "No iris match found", "warning"))
+
+        except Exception as e:
+            error_message = str(e)
+            self.after(0, lambda msg=error_message: show_toast(self, f"Iris test error: {msg}", "error"))
+    
+    
+    
+    
+    #delete admin      
+    def delete_admin(self, admin_id):
+        """Delete an admin account"""
+        if self.user_role != "super_admin":
+            show_toast(self, "Access denied", "error")
+            return
+
+        success = db.delete_user_by_id(admin_id)
+
+        if success:
+            show_toast(self, "Admin deleted successfully", "success")
+            self.show_manage_admins()
+        else:
+            show_toast(self, "Failed to delete admin", "error")
+    def open_create_admin(self):
+        """Open register page for super admin to create another admin"""
+        if self.user_role != "super_admin":
+            show_toast(self, "Access denied", "error")
+            return
+
+        self.parent.show_register(return_to_dashboard=True)
+        
+        
+    def show_system_overview(self):
+        """Show super admin system overview"""
+        self.clear_content()
+
+        self.current_frame = ctk.CTkFrame(self.content_area, fg_color="transparent")
+        self.current_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        ctk.CTkLabel(
+            self.current_frame,
+            text="⚙️ System Overview",
+            font=("Roboto", 24, "bold"),
+            text_color=COLORS['dark']
+        ).pack(anchor="w", pady=(0, 20))
+
+        stats = db.get_attendance_stats()
+        users = db.get_admin_users()
+
+        cards = [
+            ("👥 Total Students", stats["total_students"], COLORS["primary"]),
+            ("✅ Present Today", stats["present_today"], COLORS["success"]),
+            ("❌ Absent Today", stats["absent_today"], COLORS["danger"]),
+            ("🛡️ Total Admins", len(users), "#7c3aed"),
+        ]
+
+        cards_frame = ctk.CTkFrame(self.current_frame, fg_color="transparent")
+        cards_frame.pack(fill="x")
+
+        for title, value, color in cards:
+            card = ctk.CTkFrame(
+                cards_frame,
+                fg_color="white",
+                corner_radius=15,
+                border_width=2,
+                border_color=color
+            )
+            card.pack(side="left", fill="both", expand=True, padx=10)
+
+            ctk.CTkLabel(
+                card,
+                text=title,
+                font=("Roboto", 15, "bold"),
+                text_color="gray"
+            ).pack(pady=(20, 8))
+
+            ctk.CTkLabel(
+                card,
+                text=str(value),
+                font=("Roboto", 34, "bold"),
+                text_color=color
+            ).pack(pady=(0, 20))
 
     def logout(self):
         """Logout user"""
